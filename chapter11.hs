@@ -1,6 +1,9 @@
-import Data.Char
-import Data.List
-import System.IO
+import           Data.Char
+import           Data.List
+import           System.IO
+
+main :: IO ()
+main = tictactoe
 
 size :: Int
 size = 3
@@ -26,10 +29,10 @@ turn g = if os <= xs then O else X
             os = length (filter (==O) ps)
             xs = length (filter (==X) ps)
             ps = concat g
-                 
+
 wins :: Player -> Grid -> Bool
 wins p g = any line (rows ++ cols ++ dias)
-           where 
+           where
             line = all (==p)
             rows = g
             cols = transpose g
@@ -49,7 +52,7 @@ putGrid = putStrLn . unlines . concat . interleave bar . map showRow
 showRow :: [Player] -> [String]
 showRow = beside . interleave bar . map showPlayer
           where
-            beside = foldr1 (zipWith (++))  
+            beside = foldr1 (zipWith (++))
             bar = replicate 3 "|"
 
 showPlayer :: Player -> [String]
@@ -58,8 +61,8 @@ showPlayer B = ["   ", " B ", "   "]
 showPlayer X = ["   ", " X ", "   "]
 
 interleave :: a -> [a] -> [a]
-interleave x [] = []
-interleave x [y] = [y]
+interleave x []     = []
+interleave x [y]    = [y]
 interleave x (y:ys) = y:x:interleave x ys
 
 exampleGrid = putGrid [[B,O,O],[O,X,O],[X,X,X]]
@@ -85,7 +88,7 @@ getNat prompt = do putStr prompt
                        getNat prompt
 
 tictactoe :: IO ()
-tictactoe = run empty O
+tictactoe = play empty O
 
 run :: Grid -> Player -> IO ()
 run g p = do  cls
@@ -93,11 +96,11 @@ run g p = do  cls
               putGrid g
               run' g p
 
-run' :: Grid -> Player -> IO ()              
+run' :: Grid -> Player -> IO ()
 run' g p  | wins O g  = putStrLn "Player O wins!\n"
           | wins X g  = putStrLn "Player X wins!\n"
           | full g    = putStrLn "It's a draw!\n"
-          | otherwise = 
+          | otherwise =
             do i <- getNat (prompt p)
                case move g i p of
                 []    -> do putStrLn "ERROR: Invalid move"
@@ -114,3 +117,77 @@ type Pos = (Int, Int)
 
 goto :: Pos -> IO ()
 goto (x,y) = putStr ("\ESC[" ++ show y ++ ";" ++ show x ++ "H")
+
+data Tree a = Node a [Tree a] deriving Show
+
+gametree :: Grid -> Player -> Tree Grid
+gametree g p = Node g [gametree g' (next p) | g' <- moves g p]
+
+moves :: Grid -> Player -> [Grid]
+moves g p | won g = []
+          | full g = []
+          | otherwise = concat [move g i p | i <- [0..((size^2)-1)]]
+
+prune :: Int -> Tree a -> Tree a
+prune 0 (Node x _)  = Node x []
+prune n (Node x ts) = Node x [prune (n-1) t | t <- ts]
+
+depth :: Int
+depth = 9
+
+minimax :: Tree Grid -> Tree (Grid, Player)
+minimax (Node g []) | wins O g = Node (g, O) []
+                    | wins X g = Node (g, X) []
+                    | otherwise = Node (g, B) []
+minimax (Node g ts) | turn g == O = Node (g, minimum ps) ts'
+                    | turn g == X = Node (g, maximum ps) ts'
+                                    where ts' = map minimax ts
+                                          ps = [p | Node (_,p) _ <- ts']
+
+bestmove :: Grid -> Player -> Grid
+bestmove g p = head [g' | Node (g', p') _ <- ts, p' == best]
+  where
+    tree = prune depth (gametree g p)
+    Node (_, best) ts = minimax tree
+
+
+play :: Grid -> Player -> IO ()
+play g p = do cls
+              goto (1,1)
+              putGrid g
+              play' g p
+
+play' :: Grid -> Player -> IO ()
+play' g p | wins O g  = putStrLn "Player O wins!\n"
+          | wins X g  = putStrLn "Player X wins!\n"
+          | full g    = putStrLn "It's a draw!\n"
+          | p == O    =
+            do i <- getNat (prompt p)
+               case move g i p of
+                []    -> do putStrLn "ERROR: Invalid move"
+                            play' g p
+                [g']  -> play g' (next p)
+          | p == X    =
+            do  putStr "Player X is thinking..."
+                (play $! (bestmove g p)) (next p)
+
+length' :: Tree a -> Int
+length' (Node _ []) = 1
+length' (Node _ xs) = 1 + sum [length' x | x <- xs]
+                      where calc = map length' xs
+
+deep' :: Tree a -> Int
+deep' (Node _ []) = 0
+deep' (Node _ xs) = 1 + maxDeep
+  where maxDeep = maximum [deep' x | x <- xs]
+
+{-
+ -Node 1 [Node 2 [], Node 3 []]
+ -apply length'
+ -}
+--apply calc
+--map length' [Node 2 [], Node 3 []]
+--apply map
+--[length' Node 2 [], length' Node 3 []]
+--apply length'
+--[1,1]
